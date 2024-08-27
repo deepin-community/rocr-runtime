@@ -1,4 +1,16 @@
 #!/usr/bin/make -f
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+ifneq (amd64,$(DEB_HOST_ARCH))
+CMAKE_EXTRA_FLAGS:=-DIMAGE_SUPPORT=OFF
+else
+CMAKE_EXTRA_FLAGS:=
+endif
+
+CMAKE_EXTRA_FLAGS += \
+ -DINCLUDE_PATH_COMPATIBILITY=OFF
 
 %:
-	dh $@
+	dh $@ -Dsrc -Scmake
+
+override_dh_auto_configure:
+	dh_auto_configure -- $(CMAKE_EXTRA_FLAGS)

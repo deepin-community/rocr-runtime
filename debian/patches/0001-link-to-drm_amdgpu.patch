@@ -1,0 +1,33 @@
+From: Cordell Bloor <cgmb@slerp.xyz>
+Date: Tue, 9 Jan 2024 01:18:36 -0700
+Subject: link to drm_amdgpu
+
+libhsa-runtime64 uses some symbols from libdrm_amdgpu, such as
+amdgpu_query_gpu_info.
+
+Forwarded: no
+---
+ src/CMakeLists.txt | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index 9759e74..2d50ef6 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -97,6 +97,7 @@ find_package(PkgConfig)
+ find_package(LibElf REQUIRED)
+ find_package(hsakmt 1.0 REQUIRED HINTS ${CMAKE_INSTALL_PREFIX} PATHS /opt/rocm)
+ pkg_check_modules(drm REQUIRED IMPORTED_TARGET libdrm)
++pkg_check_modules(drm_amdgpu REQUIRED IMPORTED_TARGET libdrm_amdgpu)
+ 
+ ## Create the rocr target.
+ add_library( ${CORE_RUNTIME_TARGET} "" )
+@@ -273,7 +274,7 @@ if(${IMAGE_SUPPORT})
+ endif()
+ 
+ ## Link dependencies.
+-target_link_libraries ( ${CORE_RUNTIME_TARGET} PRIVATE hsakmt::hsakmt PkgConfig::drm)
++target_link_libraries ( ${CORE_RUNTIME_TARGET} PRIVATE hsakmt::hsakmt PkgConfig::drm PkgConfig::drm_amdgpu)
+ target_link_libraries ( ${CORE_RUNTIME_TARGET} PRIVATE elf::elf dl pthread rt )
+ 
+ ## Set the VERSION and SOVERSION values

@@ -1,0 +1,6 @@
+0001-link-to-drm_amdgpu.patch
+0002-remove-libhsa-amd-aqlprofile64.so-loading.patch
+0003-expand-endian-detection.patch
+0004-extend-isa-compatibility-check.patch
+0005-disable-xnack-query-print.patch
+0006-initialize-chip-revision.patch

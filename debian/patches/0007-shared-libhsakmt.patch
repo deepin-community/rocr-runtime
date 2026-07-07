@@ -1,0 +1,24 @@
+From: Cordell Bloor <cgmb@debian.org>
+Date: Tue, 26 Aug 2025 13:59:32 -0600
+Subject: shared libhsakmt
+
+Make libhsakmt into a shared library.
+
+Forwarded: not-needed
+---
+ libhsakmt/CMakeLists.txt | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/libhsakmt/CMakeLists.txt b/libhsakmt/CMakeLists.txt
+index 431721b..f9b0bcb 100644
+--- a/libhsakmt/CMakeLists.txt
++++ b/libhsakmt/CMakeLists.txt
+@@ -131,7 +131,7 @@ set ( HSAKMT_SRC "src/debug.c"
+                  "src/pc_sampling.c")
+ 
+ ## Declare the library target name
+-add_library (${HSAKMT_TARGET} STATIC "")
++add_library (${HSAKMT_TARGET} SHARED "")
+ 
+ ## Add sources
+ target_sources ( ${HSAKMT_TARGET} PRIVATE ${HSAKMT_SRC} )

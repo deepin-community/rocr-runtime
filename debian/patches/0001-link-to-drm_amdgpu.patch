@@ -1,0 +1,31 @@
+From: Cordell Bloor <cgmb@slerp.xyz>
+Date: Tue, 9 Jan 2024 01:18:36 -0700
+Subject: link to drm_amdgpu
+
+libhsa-runtime64 uses some symbols from libdrm_amdgpu, such as
+amdgpu_query_gpu_info.
+
+Forwarded: no
+---
+ runtime/hsa-runtime/CMakeLists.txt | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+--- a/runtime/hsa-runtime/CMakeLists.txt
++++ b/runtime/hsa-runtime/CMakeLists.txt
+@@ -85,6 +85,7 @@
+ find_package(LibElf REQUIRED)
+ 
+ pkg_check_modules(drm REQUIRED IMPORTED_TARGET libdrm)
++pkg_check_modules(drm_amdgpu REQUIRED IMPORTED_TARGET libdrm_amdgpu)
+ 
+ ## Create the rocr target.
+ add_library( ${CORE_RUNTIME_TARGET} "" )
+@@ -303,7 +304,7 @@
+ # Link to hsakmt target for shared library builds
+ # Link to hsakmt-staticdrm target for static library builds
+ if( BUILD_SHARED_LIBS )
+-  target_link_libraries ( ${CORE_RUNTIME_TARGET} PRIVATE hsakmt::hsakmt PkgConfig::drm)
++  target_link_libraries ( ${CORE_RUNTIME_TARGET} PRIVATE hsakmt::hsakmt PkgConfig::drm PkgConfig::drm_amdgpu)
+   find_package(rocprofiler-register)
+   if(rocprofiler-register_FOUND)
+     target_compile_definitions(${CORE_RUNTIME_TARGET} PRIVATE HSA_ROCPROFILER_REGISTER=1

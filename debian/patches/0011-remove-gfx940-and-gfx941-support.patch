@@ -1,0 +1,848 @@
+From 13c591d2508e4f021ce3ba8e0e784929270f1988 Mon Sep 17 00:00:00 2001
+From: David Yat Sin <David.YatSin@amd.com>
+Date: Wed, 19 Feb 2025 01:18:14 +0000
+Subject: [PATCH] rocr: Remove gfx940 and gfx941 support
+
+Forwarded: not-needed
+Applied-Upstream: https://github.com/ROCm/ROCR-Runtime/commit/13c591d2508e4f021ce3ba8e0e784929270f1988
+---
+ rocrtst/suites/test_common/CMakeLists.txt     |   2 +-
+ .../core/runtime/amd_blit_kernel.cpp          | 382 ------------------
+ .../core/runtime/amd_gpu_agent.cpp            |  23 +-
+ .../core/runtime/blit_shaders/CMakeLists.txt  |   4 +-
+ .../runtime/blit_shaders/blit_copyAligned.s   |  59 +--
+ .../blit_shaders/blit_copyMisaligned.s        |  25 +-
+ .../core/runtime/blit_shaders/blit_fill.s     |  23 +-
+ runtime/hsa-runtime/core/runtime/isa.cpp      |  18 -
+ .../core/runtime/trap_handler/CMakeLists.txt  |   6 +-
+ .../core/runtime/trap_handler/trap_handler.s  |   8 +-
+ runtime/hsa-runtime/image/blit_kernel.cpp     |   6 -
+ .../hsa-runtime/image/blit_src/CMakeLists.txt |   2 +-
+ .../libamdhsacode/amd_hsa_code.cpp            |   2 -
+ runtime/hsa-runtime/loader/executable.cpp     |   4 +-
+ 14 files changed, 28 insertions(+), 536 deletions(-)
+
+--- a/rocrtst/suites/test_common/CMakeLists.txt
++++ b/rocrtst/suites/test_common/CMakeLists.txt
+@@ -110,7 +110,7 @@
+ endif()
+ 
+ set(DEFAULT_TARGETS "gfx700;gfx701;gfx702;gfx801;gfx802;gfx803;gfx805;gfx810"
+-                    "gfx900;gfx902;gfx904;gfx906;gfx908;gfx909;gfx90a;gfx90c;gfx940;gfx941;gfx942;gfx950"
++                    "gfx900;gfx902;gfx904;gfx906;gfx908;gfx909;gfx90a;gfx90c;gfx942;gfx950"
+                     "gfx1010;gfx1011;gfx1012;gfx1013;gfx1030;gfx1031;gfx1032;gfx1033;gfx1034;gfx1035;gfx1036"
+                     "gfx1100;gfx1101;gfx1102;gfx1103;gfx1150;gfx1151;gfx1152;gfx1153;gfx1200;gfx1201")
+ 
+--- a/runtime/hsa-runtime/core/runtime/amd_blit_kernel.cpp
++++ b/runtime/hsa-runtime/core/runtime/amd_blit_kernel.cpp
+@@ -492,388 +492,6 @@
+   L_FILL_PHASE_2_DONE:
+     s_endpgm
+   end
+-
+-shader CopyAligned_940
+-  type(CS)
+-  user_sgpr_count(2)
+-  sgpr_count(32)
+-  vgpr_count(8 + (kCopyAlignedUnroll * kCopyAlignedVecWidth))
+-
+-  // Retrieve kernel arguments.
+-  s_load_dwordx4          s[4:7], s[0:1], s_load_dword_offset(0x0)
+-  s_load_dwordx4          s[8:11], s[0:1], s_load_dword_offset(0x10)
+-  s_load_dwordx4          s[12:15], s[0:1], s_load_dword_offset(0x20)
+-  s_load_dwordx4          s[16:19], s[0:1], s_load_dword_offset(0x30)
+-  s_load_dwordx4          s[20:23], s[0:1], s_load_dword_offset(0x40)
+-  s_load_dword            s24, s[0:1], s_load_dword_offset(0x50)
+-  s_waitcnt               lgkmcnt(0)
+-
+-  // Compute workitem id.
+-  s_lshl_b32              s2, s2, 0x6
+-  v_add_co_u32            v0, vcc, s2, v0
+-
+-  // =====================================================
+-  // Phase 1: Byte copy up to 0x100 destination alignment.
+-  // =====================================================
+-
+-  // Compute phase source address.
+-  v_mov_b32               v3, s5
+-  v_add_co_u32            v2, vcc, v0, s4
+-  v_addc_co_u32           v3, vcc, v3, 0x0, vcc
+-
+-  // Compute phase destination address.
+-  v_mov_b32               v5, s7
+-  v_add_co_u32            v4, vcc, v0, s6
+-  v_addc_co_u32           v5, vcc, v5, 0x0, vcc
+-
+-L_COPY_ALIGNED_PHASE_1_LOOP:
+-  // Mask off lanes (or branch out) after phase end.
+-  v_cmp_lt_u64            vcc, v[2:3], s[8:9]
+-  s_cbranch_vccz          L_COPY_ALIGNED_PHASE_1_DONE
+-  s_and_b64               exec, exec, vcc
+-
+-  // Load from/advance the source address.
+-  flat_load_ubyte         v1, v[2:3] sc0:1 sc1:1
+-  s_waitcnt               vmcnt(0)
+-  v_add_co_u32            v2, vcc, v2, s24
+-  v_addc_co_u32           v3, vcc, v3, 0x0, vcc
+-
+-  // Write to/advance the destination address.
+-  flat_store_byte         v[4:5], v1 sc0:1 sc1:1
+-  v_add_co_u32            v4, vcc, v4, s24
+-  v_addc_co_u32           v5, vcc, v5, 0x0, vcc
+-
+-  // Repeat until branched out.
+-  s_branch                L_COPY_ALIGNED_PHASE_1_LOOP
+-
+-L_COPY_ALIGNED_PHASE_1_DONE:
+-  // Restore EXEC mask for all lanes.
+-  s_mov_b64               exec, 0xFFFFFFFFFFFFFFFF
+-
+-  // ========================================================
+-  // Phase 2: Unrolled dword[x4] copy up to last whole block.
+-  // ========================================================
+-
+-  // Compute unrolled dword[x4] stride across all threads.
+-  if kCopyAlignedVecWidth == 4
+-    s_lshl_b32            s25, s24, 0x4
+-  else
+-    s_lshl_b32            s25, s24, 0x2
+-  end
+-
+-  // Compute phase source address.
+-  if kCopyAlignedVecWidth == 4
+-    v_lshlrev_b32         v1, 0x4, v0
+-  else
+-    v_lshlrev_b32         v1, 0x2, v0
+-  end
+-
+-  v_mov_b32               v3, s9
+-  v_add_co_u32            v2, vcc, v1, s8
+-  v_addc_co_u32           v3, vcc, v3, 0x0, vcc
+-
+-  // Compute phase destination address.
+-  v_mov_b32               v5, s11
+-  v_add_co_u32            v4, vcc, v1, s10
+-  v_addc_co_u32           v5, vcc, v5, 0x0, vcc
+-
+-L_COPY_ALIGNED_PHASE_2_LOOP:
+-  // Branch out after phase end.
+-  v_cmp_lt_u64            vcc, v[2:3], s[12:13]
+-  s_cbranch_vccz          L_COPY_ALIGNED_PHASE_2_DONE
+-
+-  // Load from/advance the source address.
+-  for var i = 0; i < kCopyAlignedUnroll; i ++
+-    if kCopyAlignedVecWidth == 4
+-      flat_load_dwordx4   v[8 + (i * 4)], v[2:3] sc0:1 sc1:1
+-    else
+-      flat_load_dword     v[8 + i], v[2:3] sc0:1 sc1:1
+-    end
+-
+-    v_add_co_u32             v2, vcc, v2, s25
+-    v_addc_co_u32         v3, vcc, v3, 0x0, vcc
+-  end
+-
+-  // Write to/advance the destination address.
+-  s_waitcnt               vmcnt(0)
+-
+-  for var i = 0; i < kCopyAlignedUnroll; i ++
+-    if kCopyAlignedVecWidth == 4
+-      flat_store_dwordx4  v[4:5], v[8 + (i * 4)] sc0:1 sc1:1
+-    else
+-      flat_store_dword    v[4:5], v[8 + i] sc0:1 sc1:1
+-    end
+-
+-    v_add_co_u32             v4, vcc, v4, s25
+-    v_addc_co_u32         v5, vcc, v5, 0x0, vcc
+-  end
+-
+-  // Repeat until branched out.
+-  s_branch                L_COPY_ALIGNED_PHASE_2_LOOP
+-
+-L_COPY_ALIGNED_PHASE_2_DONE:
+-
+-  // ===========================================
+-  // Phase 3: Dword copy up to last whole dword.
+-  // ===========================================
+-
+-  // Compute dword stride across all threads.
+-  s_lshl_b32              s25, s24, 0x2
+-
+-  // Compute phase source address.
+-  v_lshlrev_b32           v1, 0x2, v0
+-  v_mov_b32               v3, s13
+-  v_add_co_u32            v2, vcc, v1, s12
+-  v_addc_co_u32           v3, vcc, v3, 0x0, vcc
+-
+-  // Compute phase destination address.
+-  v_mov_b32               v5, s15
+-  v_add_co_u32            v4, vcc, v1, s14
+-  v_addc_co_u32           v5, vcc, v5, 0x0, vcc
+-
+-L_COPY_ALIGNED_PHASE_3_LOOP:
+-  // Mask off lanes (or branch out) after phase end.
+-  v_cmp_lt_u64            vcc, v[2:3], s[16:17]
+-  s_cbranch_vccz          L_COPY_ALIGNED_PHASE_3_DONE
+-  s_and_b64               exec, exec, vcc
+-
+-  // Load from/advance the source address.
+-  flat_load_dword         v1, v[2:3] sc0:1 sc1:1
+-  v_add_co_u32            v2, vcc, v2, s25
+-  v_addc_co_u32           v3, vcc, v3, 0x0, vcc
+-  s_waitcnt               vmcnt(0)
+-
+-  // Write to/advance the destination address.
+-  flat_store_dword        v[4:5], v1 sc0:1 sc1:1
+-  v_add_co_u32            v4, vcc, v4, s25
+-  v_addc_co_u32           v5, vcc, v5, 0x0, vcc
+-
+-  // Repeat until branched out.
+-  s_branch                L_COPY_ALIGNED_PHASE_3_LOOP
+-
+-L_COPY_ALIGNED_PHASE_3_DONE:
+-  // Restore EXEC mask for all lanes.
+-  s_mov_b64               exec, 0xFFFFFFFFFFFFFFFF
+-
+-  // =============================
+-  // Phase 4: Byte copy up to end.
+-  // =============================
+-
+-  // Compute phase source address.
+-  v_mov_b32               v3, s17
+-  v_add_co_u32            v2, vcc, v0, s16
+-  v_addc_co_u32           v3, vcc, v3, 0x0, vcc
+-
+-  // Compute phase destination address.
+-  v_mov_b32               v5, s19
+-  v_add_co_u32            v4, vcc, v0, s18
+-  v_addc_co_u32           v5, vcc, v5, 0x0, vcc
+-
+-  // Mask off lanes (or branch out) after phase end.
+-  v_cmp_lt_u64            vcc, v[2:3], s[20:21]
+-  s_cbranch_vccz          L_COPY_ALIGNED_PHASE_4_DONE
+-  s_and_b64               exec, exec, vcc
+-
+-  // Load from the source address.
+-  flat_load_ubyte         v1, v[2:3] sc0:1 sc1:1
+-  s_waitcnt               vmcnt(0)
+-
+-  // Write to the destination address.
+-  flat_store_byte         v[4:5], v1 sc0:1 sc1:1
+-
+-L_COPY_ALIGNED_PHASE_4_DONE:
+-  s_endpgm
+-end
+-
+-shader CopyMisaligned_940
+-  type(CS)
+-  user_sgpr_count(2)
+-  sgpr_count(23)
+-  vgpr_count(6 + kCopyMisalignedUnroll)
+-
+-  // Retrieve kernel arguments.
+-  s_load_dwordx4          s[4:7], s[0:1], s_load_dword_offset(0x0)
+-  s_load_dwordx4          s[8:11], s[0:1], s_load_dword_offset(0x10)
+-  s_load_dwordx4          s[12:15], s[0:1], s_load_dword_offset(0x20)
+-  s_load_dword            s16, s[0:1], s_load_dword_offset(0x30)
+-  s_waitcnt               lgkmcnt(0)
+-
+-  // Compute workitem id.
+-  s_lshl_b32              s2, s2, 0x6
+-  v_add_co_u32            v0, vcc, s2, v0
+-
+-  // ===================================================
+-  // Phase 1: Unrolled byte copy up to last whole block.
+-  // ===================================================
+-
+-  // Compute phase source address.
+-  v_mov_b32               v3, s5
+-  v_add_co_u32            v2, vcc, v0, s4
+-  v_addc_co_u32           v3, vcc, v3, 0x0, vcc
+-
+-  // Compute phase destination address.
+-  v_mov_b32               v5, s7
+-  v_add_co_u32            v4, vcc, v0, s6
+-  v_addc_co_u32           v5, vcc, v5, 0x0, vcc
+-
+-L_COPY_MISALIGNED_PHASE_1_LOOP:
+-  // Branch out after phase end.
+-  v_cmp_lt_u64            vcc, v[2:3], s[8:9]
+-  s_cbranch_vccz          L_COPY_MISALIGNED_PHASE_1_DONE
+-
+-  // Load from/advance the source address.
+-  for var i = 0; i < kCopyMisalignedUnroll; i ++
+-    flat_load_ubyte       v[6 + i], v[2:3] sc0:1 sc1:1
+-    v_add_co_u32          v2, vcc, v2, s16
+-    v_addc_co_u32         v3, vcc, v3, 0x0, vcc
+-  end
+-
+-  // Write to/advance the destination address.
+-  s_waitcnt               vmcnt(0)
+-
+-  for var i = 0; i < kCopyMisalignedUnroll; i ++
+-    flat_store_byte       v[4:5], v[6 + i] sc0:1 sc1:1
+-    v_add_co_u32          v4, vcc, v4, s16
+-    v_addc_co_u32         v5, vcc, v5, 0x0, vcc
+-  end
+-
+-  // Repeat until branched out.
+-  s_branch                L_COPY_MISALIGNED_PHASE_1_LOOP
+-
+-L_COPY_MISALIGNED_PHASE_1_DONE:
+-
+-  // =============================
+-  // Phase 2: Byte copy up to end.
+-  // =============================
+-
+-  // Compute phase source address.
+-  v_mov_b32               v3, s9
+-  v_add_co_u32            v2, vcc, v0, s8
+-  v_addc_co_u32           v3, vcc, v3, 0x0, vcc
+-
+-  // Compute phase destination address.
+-  v_mov_b32               v5, s11
+-  v_add_co_u32            v4, vcc, v0, s10
+-  v_addc_co_u32           v5, vcc, v5, 0x0, vcc
+-
+-L_COPY_MISALIGNED_PHASE_2_LOOP:
+-  // Mask off lanes (or branch out) after phase end.
+-  v_cmp_lt_u64            vcc, v[2:3], s[12:13]
+-  s_cbranch_vccz          L_COPY_MISALIGNED_PHASE_2_DONE
+-  s_and_b64               exec, exec, vcc
+-
+-  // Load from/advance the source address.
+-  flat_load_ubyte         v1, v[2:3] sc0:1 sc1:1
+-  v_add_co_u32            v2, vcc, v2, s16
+-  v_addc_co_u32           v3, vcc, v3, 0x0, vcc
+-  s_waitcnt               vmcnt(0)
+-
+-  // Write to/advance the destination address.
+-  flat_store_byte         v[4:5], v1 sc0:1 sc1:1
+-  v_add_co_u32            v4, vcc, v4, s16
+-  v_addc_co_u32           v5, vcc, v5, 0x0, vcc
+-
+-  // Repeat until branched out.
+-  s_branch                L_COPY_MISALIGNED_PHASE_2_LOOP
+-
+-L_COPY_MISALIGNED_PHASE_2_DONE:
+-  s_endpgm
+-end
+-
+-shader Fill_940
+-  type(CS)
+-  user_sgpr_count(2)
+-  sgpr_count(19)
+-  vgpr_count(8)
+-
+-  // Retrieve kernel arguments.
+-  s_load_dwordx4          s[4:7], s[0:1], s_load_dword_offset(0x0)
+-  s_load_dwordx4          s[8:11], s[0:1], s_load_dword_offset(0x10)
+-  s_waitcnt               lgkmcnt(0)
+-
+-  // Compute workitem id.
+-  s_lshl_b32              s2, s2, 0x6
+-  v_add_co_u32            v0, vcc, s2, v0
+-
+-  // Copy fill pattern into VGPRs.
+-  for var i = 0; i < kFillVecWidth; i ++
+-    v_mov_b32           v[4 + i], s10
+-  end
+-
+-  // ========================================================
+-  // Phase 1: Unrolled dword[x4] fill up to last whole block.
+-  // ========================================================
+-
+-  // Compute unrolled dword[x4] stride across all threads.
+-  if kFillVecWidth == 4
+-    s_lshl_b32            s12, s11, 0x4
+-  else
+-    s_lshl_b32            s12, s11, 0x2
+-  end
+-
+-  // Compute phase destination address.
+-  if kFillVecWidth == 4
+-    v_lshlrev_b32         v1, 0x4, v0
+-  else
+-    v_lshlrev_b32         v1, 0x2, v0
+-  end
+-
+-  v_mov_b32               v3, s5
+-  v_add_co_u32            v2, vcc, v1, s4
+-  v_addc_co_u32           v3, vcc, v3, 0x0, vcc
+-
+-L_FILL_PHASE_1_LOOP:
+-  // Branch out after phase end.
+-  v_cmp_lt_u64            vcc, v[2:3], s[6:7]
+-  s_cbranch_vccz          L_FILL_PHASE_1_DONE
+-
+-  // Write to/advance the destination address.
+-  for var i = 0; i < kFillUnroll; i ++
+-    if kFillVecWidth == 4
+-      flat_store_dwordx4  v[2:3], v[4:7] sc0:1 sc1:1
+-    else
+-      flat_store_dword    v[2:3], v4 sc0:1 sc1:1
+-    end
+-
+-    v_add_co_u32          v2, vcc, v2, s12
+-    v_addc_co_u32         v3, vcc, v3, 0x0, vcc
+-  end
+-
+-  // Repeat until branched out.
+-  s_branch                L_FILL_PHASE_1_LOOP
+-
+-L_FILL_PHASE_1_DONE:
+-
+-  // ==============================
+-  // Phase 2: Dword fill up to end.
+-  // ==============================
+-
+-  // Compute dword stride across all threads.
+-  s_lshl_b32              s12, s11, 0x2
+-
+-  // Compute phase destination address.
+-  v_lshlrev_b32           v1, 0x2, v0
+-  v_mov_b32               v3, s7
+-  v_add_co_u32            v2, vcc, v1, s6
+-  v_addc_co_u32           v3, vcc, v3, 0x0, vcc
+-
+-L_FILL_PHASE_2_LOOP:
+-  // Mask off lanes (or branch out) after phase end.
+-  v_cmp_lt_u64            vcc, v[2:3], s[8:9]
+-  s_cbranch_vccz          L_FILL_PHASE_2_DONE
+-  s_and_b64               exec, exec, vcc
+-
+-  // Write to/advance the destination address.
+-  flat_store_dword        v[2:3], v4 sc0:1 sc1:1
+-  v_add_co_u32            v2, vcc, v2, s12
+-  v_addc_co_u32           v3, vcc, v3, 0x0, vcc
+-
+-  // Repeat until branched out.
+-  s_branch                L_FILL_PHASE_2_LOOP
+-
+-L_FILL_PHASE_2_DONE:
+-  s_endpgm
+-end
+ )");
+   return kBlitKernelSource_;
+ }
+--- a/runtime/hsa-runtime/core/runtime/amd_gpu_agent.cpp
++++ b/runtime/hsa-runtime/core/runtime/amd_gpu_agent.cpp
+@@ -290,7 +290,6 @@
+     ASICShader compute_8;
+     ASICShader compute_9;
+     ASICShader compute_90a;
+-    ASICShader compute_940;
+     ASICShader compute_942;
+     ASICShader compute_1010;
+     ASICShader compute_10;
+@@ -305,7 +304,6 @@
+            {kCodeTrapHandler8, sizeof(kCodeTrapHandler8), 2, 4},            // gfx8
+            {kCodeTrapHandler9, sizeof(kCodeTrapHandler9), 2, 4},            // gfx9
+            {kCodeTrapHandler90a, sizeof(kCodeTrapHandler90a), 2, 4},        // gfx90a
+-           {NULL, 0, 0, 0},                                                 // gfx940
+            {NULL, 0, 0, 0},                                                 // gfx942
+            {kCodeTrapHandler1010, sizeof(kCodeTrapHandler1010), 2, 4},      // gfx1010
+            {kCodeTrapHandler10, sizeof(kCodeTrapHandler10), 2, 4},          // gfx10
+@@ -320,8 +318,7 @@
+            {kCodeTrapHandler8, sizeof(kCodeTrapHandler8), 2, 4},            // gfx8
+            {kCodeTrapHandlerV2_9, sizeof(kCodeTrapHandlerV2_9), 2, 4},      // gfx9
+            {kCodeTrapHandlerV2_9, sizeof(kCodeTrapHandlerV2_9), 2, 4},      // gfx90a
+-           {kCodeTrapHandlerV2_940, sizeof(kCodeTrapHandlerV2_940), 2, 4},  // gfx940
+-           {kCodeTrapHandlerV2_940, sizeof(kCodeTrapHandlerV2_940), 2, 4},  // gfx942
++           {kCodeTrapHandlerV2_942, sizeof(kCodeTrapHandlerV2_942), 2, 4},  // gfx942
+            {kCodeTrapHandlerV2_1010, sizeof(kCodeTrapHandlerV2_1010), 2, 4},// gfx1010
+            {kCodeTrapHandlerV2_10, sizeof(kCodeTrapHandlerV2_10), 2, 4},    // gfx10
+            {kCodeTrapHandlerV2_11, sizeof(kCodeTrapHandlerV2_11), 2, 4},    // gfx11
+@@ -333,7 +330,6 @@
+            {kCodeCopyAligned8, sizeof(kCodeCopyAligned8), 32, 12},          // gfx8
+            {kCodeCopyAligned9, sizeof(kCodeCopyAligned9), 32, 12},          // gfx9
+            {kCodeCopyAligned9, sizeof(kCodeCopyAligned9), 32, 12},          // gfx90a
+-           {kCodeCopyAligned940, sizeof(kCodeCopyAligned940), 32, 12},      // gfx940
+            {kCodeCopyAligned9, sizeof(kCodeCopyAligned9), 32, 12},          // gfx942
+            {kCodeCopyAligned10, sizeof(kCodeCopyAligned10), 32, 12},        // gfx1010
+            {kCodeCopyAligned10, sizeof(kCodeCopyAligned10), 32, 12},        // gfx10
+@@ -346,7 +342,6 @@
+            {kCodeCopyMisaligned8, sizeof(kCodeCopyMisaligned8), 23, 10},    // gfx8
+            {kCodeCopyMisaligned9, sizeof(kCodeCopyMisaligned9), 23, 10},    // gfx9
+            {kCodeCopyMisaligned9, sizeof(kCodeCopyMisaligned9), 23, 10},    // gfx90a
+-           {kCodeCopyMisaligned940, sizeof(kCodeCopyMisaligned940), 23, 10},// gfx940
+            {kCodeCopyMisaligned9, sizeof(kCodeCopyMisaligned9), 23, 10},    // gfx942
+            {kCodeCopyMisaligned10, sizeof(kCodeCopyMisaligned10), 23, 10},  // gfx1010
+            {kCodeCopyMisaligned10, sizeof(kCodeCopyMisaligned10), 23, 10},  // gfx10
+@@ -359,7 +354,6 @@
+            {kCodeFill8, sizeof(kCodeFill8), 19, 8},                         // gfx8
+            {kCodeFill9, sizeof(kCodeFill9), 19, 8},                         // gfx9
+            {kCodeFill9, sizeof(kCodeFill9), 19, 8},                         // gfx90a
+-           {kCodeFill940, sizeof(kCodeFill940), 19, 8},                     // gfx940
+            {kCodeFill9, sizeof(kCodeFill9), 19, 8},                         // gfx942
+            {kCodeFill10, sizeof(kCodeFill10), 19, 8},                       // gfx1010
+            {kCodeFill10, sizeof(kCodeFill10), 19, 8},                       // gfx10
+@@ -383,18 +377,7 @@
+     case 9:
+       if((isa_->GetMinorVersion() == 0) && (isa_->GetStepping() == 10)) {
+         asic_shader = &compiled_shader_it->second.compute_90a;
+-      } else if(isa_->GetMinorVersion() == 4) {
+-        switch(isa_->GetStepping()) {
+-          case 0:
+-          case 1:
+-            asic_shader = &compiled_shader_it->second.compute_940;
+-            break;
+-          case 2:
+-          default:
+-            asic_shader = &compiled_shader_it->second.compute_942;
+-            break;
+-        }
+-      } else if(isa_->GetMinorVersion() == 5) {
++      } else if(isa_->GetMinorVersion() == 4 || isa_->GetMinorVersion() == 5) {
+         asic_shader = &compiled_shader_it->second.compute_942;
+       } else {
+         asic_shader = &compiled_shader_it->second.compute_9;
+@@ -452,7 +435,7 @@
+     AMD_HSA_BITS_SET(header->compute_pgm_rsrc2,
+                      AMD_COMPUTE_PGM_RSRC_TWO_ENABLE_SGPR_WORKGROUP_ID_X, 1);
+ 
+-    // gfx90a, gfx940, gfx941, gfx942, gfx950
++    // gfx90a, gfx942, gfx950
+     if ((isa_->GetMajorVersion() == 9) &&
+         (((isa_->GetMinorVersion() == 0) && (isa_->GetStepping() == 10)) ||
+         (isa_->GetMinorVersion() == 4 || isa_->GetMinorVersion() == 5))) {
+--- a/runtime/hsa-runtime/core/runtime/blit_shaders/CMakeLists.txt
++++ b/runtime/hsa-runtime/core/runtime/blit_shaders/CMakeLists.txt
+@@ -49,10 +49,10 @@
+ find_package(LLVM REQUIRED HINTS ${CMAKE_PREFIX_PATH}/llvm PATHS /opt/rocm/llvm )
+ 
+ # Set the target devices
+-set (TARGET_DEVS "gfx900;gfx940;gfx1010;gfx1030;gfx1100;gfx1200")
++set (TARGET_DEVS "gfx900;gfx1010;gfx1030;gfx1100;gfx1200")
+ 
+ # Set the postfix for each target device
+-set (POSTFIX "9;940;1010;10;11;12")
++set (POSTFIX "9;1010;10;11;12")
+ 
+ # If verbose output is enabled, print paths and target devices
+ if(${CMAKE_VERBOSE_MAKEFILE})
+--- a/runtime/hsa-runtime/core/runtime/blit_shaders/blit_copyAligned.s
++++ b/runtime/hsa-runtime/core/runtime/blit_shaders/blit_copyAligned.s
+@@ -71,55 +71,6 @@
+ 	.endif
+ .endm
+ 
+-//sc1 sc0 params are only needed for gfx940/gfx941. On gfx942, we use the compiled code for gfx9
+-.macro FLAT_LOAD_DWORD dst, src
+-  .if (.amdgcn.gfx_generation_number == 9 && .amdgcn.gfx_generation_minor == 4)
+-    flat_load_dword      \dst, \src sc1 sc0
+-  .else
+-    flat_load_dword      \dst, \src
+-  .endif
+-.endm
+-
+-.macro FLAT_STORE_DWORD dst, src
+-  .if (.amdgcn.gfx_generation_number == 9 && .amdgcn.gfx_generation_minor == 4)
+-    flat_store_dword      \dst, \src sc1 sc0
+-  .else
+-    flat_store_dword      \dst, \src
+-  .endif
+-.endm
+-
+-.macro FLAT_LOAD_DWORDX4 dst, src
+-  .if (.amdgcn.gfx_generation_number == 9 && .amdgcn.gfx_generation_minor == 4)
+-    flat_load_dwordx4    \dst, \src sc1 sc0
+-  .else
+-    flat_load_dwordx4    \dst, \src
+-  .endif
+-.endm
+-
+-.macro FLAT_STORE_DWORDX4 dst, src
+-  .if (.amdgcn.gfx_generation_number == 9 && .amdgcn.gfx_generation_minor == 4)
+-    flat_store_dwordx4    \dst, \src sc1 sc0
+-  .else
+-    flat_store_dwordx4    \dst, \src
+-  .endif
+-.endm
+-
+-.macro FLAT_LOAD_UBYTE dst, src
+-  .if (.amdgcn.gfx_generation_number == 9 && .amdgcn.gfx_generation_minor == 4)
+-    flat_load_ubyte      \dst, \src sc1 sc0
+-  .else
+-    flat_load_ubyte      \dst, \src
+-  .endif
+-.endm
+-
+-.macro FLAT_STORE_BYTE dst, src
+-  .if (.amdgcn.gfx_generation_number == 9 && .amdgcn.gfx_generation_minor == 4)
+-    flat_store_byte      \dst, \src sc1 sc0
+-  .else
+-    flat_store_byte      \dst, \src
+-  .endif
+-.endm
+-
+ .p2align 8
+ 
+ CopyAligned:
+@@ -214,9 +165,9 @@
+ 
+ .macro mCopyAlignedPhase2Load iter iter_end
+     .if kCopyAlignedVecWidth == 4
+-      FLAT_LOAD_DWORDX4    v[8 + (\iter * 4):8 + (\iter * 4) + 3], v[2:3]
++      flat_load_dwordx4    v[8 + (\iter * 4):8 + (\iter * 4) + 3], v[2:3]
+     .else
+-      FLAT_LOAD_DWORD      v[8 + \iter], v[2:3]
++      flat_load_dword      v[8 + \iter], v[2:3]
+     .endif
+ 
+     V_ADD_CO_U32           v2, v2, s25
+@@ -233,9 +184,9 @@
+ 
+ .macro mCopyAlignedPhase2Store iter iter_end
+     .if kCopyAlignedVecWidth == 4
+-      FLAT_STORE_DWORDX4   v[4:5], v[8 + (\iter * 4):8 + (\iter * 4) + 3]
++      flat_store_dwordX4   v[4:5], v[8 + (\iter * 4):8 + (\iter * 4) + 3]
+     .else
+-      FLAT_STORE_DWORD     v[4:5], v[8 + \iter]
++      flat_store_dword     v[4:5], v[8 + \iter]
+     .endif
+ 
+ 	V_ADD_CO_U32         v4, v4, s25
+@@ -277,7 +228,7 @@
+     s_waitcnt               vmcnt(0)
+ 
+ 
+-    FLAT_STORE_DWORD        v[4:5], v1
++    flat_store_dword        v[4:5], v1
+     V_ADD_CO_U32            v4, v4, s25
+     V_ADD_CO_CI_U32         v5, v5, 0x0
+ 
+--- a/runtime/hsa-runtime/core/runtime/blit_shaders/blit_copyMisaligned.s
++++ b/runtime/hsa-runtime/core/runtime/blit_shaders/blit_copyMisaligned.s
+@@ -71,23 +71,6 @@
+ 	.endif
+ .endm
+ 
+-//sc1 sc0 params are only needed for gfx940/gfx941. On gfx942, we use the compiled code for gfx9
+-.macro FLAT_LOAD_UBYTE dst, src
+-  .if (.amdgcn.gfx_generation_number == 9 && .amdgcn.gfx_generation_minor == 4)
+-    flat_load_ubyte      \dst, \src sc1 sc0
+-  .else
+-    flat_load_ubyte      \dst, \src
+-  .endif
+-.endm
+-
+-.macro FLAT_STORE_BYTE dst, src
+-  .if (.amdgcn.gfx_generation_number == 9 && .amdgcn.gfx_generation_minor == 4)
+-    flat_store_byte      \dst, \src sc1 sc0
+-  .else
+-    flat_store_byte      \dst, \src
+-  .endif
+-.endm
+-
+ .set kCopyMisalignedUnroll, 4
+ .set kCopyMisalignedNumSGPRs, 17
+ .set kCopyMisalignedNumVGPRs, 6 + kCopyMisalignedUnroll
+@@ -140,7 +123,7 @@
+ 
+ 
+   .macro mCopyMisalignedPhase1Load iter iter_end
+-    FLAT_LOAD_UBYTE     v[6 + \iter], v[2:3]
++    flat_load_ubyte     v[6 + \iter], v[2:3]
+     V_ADD_CO_U32        v2, v2, s16
+     V_ADD_CO_CI_U32     v3, v3, 0x0
+ 
+@@ -154,7 +137,7 @@
+   s_waitcnt                vmcnt(0)
+ 
+   .macro mCopyMisalignedPhase1Store iter iter_end
+-    FLAT_STORE_BYTE        v[4:5], v[6 + \iter]
++    flat_store_byte        v[4:5], v[6 + \iter]
+     V_ADD_CO_U32           v4, v4, s16
+     V_ADD_CO_CI_U32        v5, v5, 0x0
+ 
+@@ -184,12 +167,12 @@
+     s_and_b64               exec, exec, vcc
+ 
+ 
+-    FLAT_LOAD_UBYTE         v1, v[2:3]
++    flat_load_ubyte         v1, v[2:3]
+     V_ADD_CO_U32            v2, v2, s16
+     V_ADD_CO_CI_U32         v3, v3, 0x0
+     s_waitcnt               vmcnt(0)
+ 
+-    FLAT_STORE_BYTE         v[4:5], v1
++    flat_store_byte         v[4:5], v1
+     V_ADD_CO_U32            v4, v4, s16
+     V_ADD_CO_CI_U32         v5, v5, 0x0
+ 
+--- a/runtime/hsa-runtime/core/runtime/blit_shaders/blit_fill.s
++++ b/runtime/hsa-runtime/core/runtime/blit_shaders/blit_fill.s
+@@ -70,23 +70,6 @@
+ 	.endif
+ .endm
+ 
+-//sc1 sc0 params are only needed for gfx940/gfx941. On gfx942, we use the compiled code for gfx9
+-.macro FLAT_STORE_DWORD dst, src
+-  .if (.amdgcn.gfx_generation_number == 9 && .amdgcn.gfx_generation_minor == 4)
+-    flat_store_dword      \dst, \src sc1 sc0
+-  .else
+-    flat_store_dword      \dst, \src
+-  .endif
+-.endm
+-
+-.macro FLAT_STORE_DWORDX4 dst, src
+-  .if (.amdgcn.gfx_generation_number == 9 && .amdgcn.gfx_generation_minor == 4)
+-    flat_store_dwordx4    \dst, \src sc1 sc0
+-  .else
+-    flat_store_dwordx4    \dst, \src
+-  .endif
+-.endm
+-
+ .set kFillVecWidth, 4
+ .set kFillUnroll, 1
+ 
+@@ -159,9 +142,9 @@
+ 
+ .macro mFillPhase1 iter iter_end
+     .if kFillVecWidth == 4
+-      FLAT_STORE_DWORDX4   v[2:3], v[4:7]
++      flat_store_dwordx4   v[2:3], v[4:7]
+     .else
+-      FLAT_STORE_DWORD     v[2:3], v4
++      flat_store_dword     v[2:3], v4
+     .endif
+ 
+      V_ADD_CO_U32          v2, v2, s12
+@@ -192,7 +175,7 @@
+     s_and_b64               exec, exec, vcc
+ 
+ 
+-    FLAT_STORE_DWORD        v[2:3], v4
++    flat_store_dword        v[2:3], v4
+     V_ADD_CO_U32            v2, v2, s12
+     V_ADD_CO_CI_U32         v3, v3, 0x0
+ 
+--- a/runtime/hsa-runtime/core/runtime/isa.cpp
++++ b/runtime/hsa-runtime/core/runtime/isa.cpp
+@@ -434,24 +434,6 @@
+   ISAREG_ENTRY_GEN("gfx90c",                 9, 0, 12, unsupported, any,         64, "gfx9-generic")
+   ISAREG_ENTRY_GEN("gfx90c:xnack-",          9, 0, 12, unsupported, disabled,    64, "gfx9-generic:xnack-")
+   ISAREG_ENTRY_GEN("gfx90c:xnack+",          9, 0, 12, unsupported, enabled,     64, "gfx9-generic:xnack+")
+-  ISAREG_ENTRY_GEN("gfx940",                 9, 4, 0,  any,         any,         64, "gfx9-4-generic")
+-  ISAREG_ENTRY_GEN("gfx940:xnack-",          9, 4, 0,  any,         disabled,    64, "gfx9-4-generic:xnack-")
+-  ISAREG_ENTRY_GEN("gfx940:xnack+",          9, 4, 0,  any,         enabled,     64, "gfx9-4-generic:xnack+")
+-  ISAREG_ENTRY_GEN("gfx940:sramecc-",        9, 4, 0,  disabled,    any,         64, "gfx9-4-generic:sramecc-")
+-  ISAREG_ENTRY_GEN("gfx940:sramecc+",        9, 4, 0,  enabled,     any,         64, "gfx9-4-generic:sramecc+")
+-  ISAREG_ENTRY_GEN("gfx940:sramecc-:xnack-", 9, 4, 0,  disabled,    disabled,    64, "gfx9-4-generic:sramecc-:xnack-")
+-  ISAREG_ENTRY_GEN("gfx940:sramecc-:xnack+", 9, 4, 0,  disabled,    enabled,     64, "gfx9-4-generic:sramecc-:xnack+")
+-  ISAREG_ENTRY_GEN("gfx940:sramecc+:xnack-", 9, 4, 0,  enabled,     disabled,    64, "gfx9-4-generic:sramecc+:xnack-")
+-  ISAREG_ENTRY_GEN("gfx940:sramecc+:xnack+", 9, 4, 0,  enabled,     enabled,     64, "gfx9-4-generic:sramecc+:xnack+")
+-  ISAREG_ENTRY_GEN("gfx941",                 9, 4, 1,  any,         any,         64, "gfx9-4-generic")
+-  ISAREG_ENTRY_GEN("gfx941:xnack-",          9, 4, 1,  any,         disabled,    64, "gfx9-4-generic:xnack-")
+-  ISAREG_ENTRY_GEN("gfx941:xnack+",          9, 4, 1,  any,         enabled,     64, "gfx9-4-generic:xnack+")
+-  ISAREG_ENTRY_GEN("gfx941:sramecc-",        9, 4, 1,  disabled,    any,         64, "gfx9-4-generic:sramecc-")
+-  ISAREG_ENTRY_GEN("gfx941:sramecc+",        9, 4, 1,  enabled,     any,         64, "gfx9-4-generic:sramecc+")
+-  ISAREG_ENTRY_GEN("gfx941:sramecc-:xnack-", 9, 4, 1,  disabled,    disabled,    64, "gfx9-4-generic:sramecc-:xnack-")
+-  ISAREG_ENTRY_GEN("gfx941:sramecc-:xnack+", 9, 4, 1,  disabled,    enabled,     64, "gfx9-4-generic:sramecc-:xnack+")
+-  ISAREG_ENTRY_GEN("gfx941:sramecc+:xnack-", 9, 4, 1,  enabled,     disabled,    64, "gfx9-4-generic:sramecc+:xnack-")
+-  ISAREG_ENTRY_GEN("gfx941:sramecc+:xnack+", 9, 4, 1,  enabled,     enabled,     64, "gfx9-4-generic:sramecc+:xnack+")
+   ISAREG_ENTRY_GEN("gfx942",                 9, 4, 2,  any,         any,         64, "gfx9-4-generic")
+   ISAREG_ENTRY_GEN("gfx942:xnack-",          9, 4, 2,  any,         disabled,    64, "gfx9-4-generic:xnack-")
+   ISAREG_ENTRY_GEN("gfx942:xnack+",          9, 4, 2,  any,         enabled,     64, "gfx9-4-generic:xnack+")
+--- a/runtime/hsa-runtime/core/runtime/trap_handler/CMakeLists.txt
++++ b/runtime/hsa-runtime/core/runtime/trap_handler/CMakeLists.txt
+@@ -46,9 +46,9 @@
+ find_package(Clang REQUIRED HINTS ${CMAKE_PREFIX_PATH}/llvm PATHS /opt/rocm/llvm )
+ find_package(LLVM REQUIRED HINTS ${CMAKE_PREFIX_PATH}/llvm PATHS /opt/rocm/llvm )
+ 
+-set (TARGET_DEVS "gfx900;gfx940;gfx941;gfx942;gfx950;gfx1010;gfx1030;gfx1100;gfx1200")
+-set (POSTFIX "9;940;941;942;950;1010;10;11;12")
+-set (SOURCE_SUFFIX ";;;;;;;;_gfx12")
++set (TARGET_DEVS "gfx900;gfx942;gfx950;gfx1010;gfx1030;gfx1100;gfx1200")
++set (POSTFIX "9;942;950;1010;10;11;12")
++set (SOURCE_SUFFIX ";;;;;;_gfx12")
+ 
+ if(${CMAKE_VERBOSE_MAKEFILE})
+   get_property(clang_path TARGET clang PROPERTY LOCATION)
+--- a/runtime/hsa-runtime/core/runtime/trap_handler/trap_handler.s
++++ b/runtime/hsa-runtime/core/runtime/trap_handler/trap_handler.s
+@@ -92,8 +92,8 @@
+ .endif
+ 
+ // Defining TTMP_REG1 and TTMP_REG2 for clarity in comments
+-// TTMP_REG1 means ttmp6 register if gfx>=940 and means ttmp13 register if gfx<940
+-// TTMP_REG2 means ttmp11 register if gfx>=940 and means ttmp6 register if gfx<940
++// TTMP_REG1 means ttmp6 register if gfx>=942 and means ttmp13 register if gfx<942
++// TTMP_REG2 means ttmp11 register if gfx>=942 and means ttmp6 register if gfx<942
+ 
+ .if .amdgcn.gfx_generation_number == 9 && .amdgcn.gfx_generation_minor >= 4
+   .set TTMP11_TTMPS_SETUP_SHIFT              , 31
+@@ -205,12 +205,12 @@
+ //   ttmp15 = TMA[63:32]
+ // gfx9:
+ //   ttmp1 = 0[2:0], PCRewind[3:0], HostTrap[0], TrapId[7:0], PC[47:32]
+-// all gfx9 (except gfx940, gfx941, gfx942):
++// all gfx9 (except gfx942):
+ //   ttmp6 = 0[6:0], DispatchPktIndx[24:0]
+ //   ttmp11 = SQ_WAVE_IB_STS[20:15], 0[1:0], DebugEnabled[0], 0[15:0], NoScratch[0], WaveInWg[5:0]
+ //            Note: Once stochastic sampling is implemented, L2 Trap Handler will use Bit 23
+ //            (TTMP11_PCS_IS_STOCHASTIC) to differentiate between stochastic and hosttrap
+-// gfx940/gfx941/gfx942:
++// gfx942:
+ //   ttmp11 = 0[0], DispatchPktIndx[24:0], WaveIdInWg[5:0]
+ //   ttmp13 = SQ_WAVE_IB_STS[20:15], 0[1:0], DebugEnabled[0], 0[22:0]
+ // gfx10:
+--- a/runtime/hsa-runtime/image/blit_kernel.cpp
++++ b/runtime/hsa-runtime/image/blit_kernel.cpp
+@@ -85,8 +85,6 @@
+ extern uint8_t ocl_blit_object_gfx909[];
+ extern uint8_t ocl_blit_object_gfx90a[];
+ extern uint8_t ocl_blit_object_gfx90c[];
+-extern uint8_t ocl_blit_object_gfx940[];
+-extern uint8_t ocl_blit_object_gfx941[];
+ extern uint8_t ocl_blit_object_gfx942[];
+ extern uint8_t ocl_blit_object_gfx950[];
+ extern uint8_t ocl_blit_object_gfx1010[];
+@@ -1017,10 +1015,6 @@
+     *blit_code_object = ocl_blit_object_gfx90a;
+   } else if (sname == "gfx90c") {
+     *blit_code_object = ocl_blit_object_gfx90c;
+-  } else if (sname == "gfx940") {
+-    *blit_code_object = ocl_blit_object_gfx940;
+-  } else if (sname == "gfx941") {
+-    *blit_code_object = ocl_blit_object_gfx941;
+   } else if (sname == "gfx942") {
+     *blit_code_object = ocl_blit_object_gfx942;
+   } else if (sname == "gfx950") {
+--- a/runtime/hsa-runtime/image/blit_src/CMakeLists.txt
++++ b/runtime/hsa-runtime/image/blit_src/CMakeLists.txt
+@@ -48,7 +48,7 @@
+ # Determine the target devices if not specified
+ if (NOT DEFINED TARGET_DEVICES)
+   set (TARGET_DEVICES "gfx700;gfx701;gfx702;gfx801;gfx802;gfx803;gfx805;gfx810"
+-                      "gfx900;gfx902;gfx904;gfx906;gfx908;gfx909;gfx90a;gfx90c;gfx940;gfx941;gfx942;gfx950"
++                      "gfx900;gfx902;gfx904;gfx906;gfx908;gfx909;gfx90a;gfx90c;gfx942;gfx950"
+                       "gfx1010;gfx1011;gfx1012;gfx1013;gfx1030;gfx1031;gfx1032;gfx1033;gfx1034;gfx1035;gfx1036"
+                       "gfx1100;gfx1101;gfx1102;gfx1103;gfx1150;gfx1151;gfx1152;gfx1153;gfx1200;gfx1201")
+ endif()
+--- a/runtime/hsa-runtime/libamdhsacode/amd_hsa_code.cpp
++++ b/runtime/hsa-runtime/libamdhsacode/amd_hsa_code.cpp
+@@ -585,8 +585,6 @@
+       case ELF::EF_AMDGPU_MACH_AMDGCN_GFX909:  MI.Name = "gfx909";  MI.XnackSupported = true;  MI.SrameccSupported = false; break;
+       case ELF::EF_AMDGPU_MACH_AMDGCN_GFX90A:  MI.Name = "gfx90a";  MI.XnackSupported = true;  MI.SrameccSupported = true;  break;
+       case ELF::EF_AMDGPU_MACH_AMDGCN_GFX90C:  MI.Name = "gfx90c";  MI.XnackSupported = true;  MI.SrameccSupported = false; break;
+-      case ELF::EF_AMDGPU_MACH_AMDGCN_GFX940:  MI.Name = "gfx940";  MI.XnackSupported = true;  MI.SrameccSupported = true;  break;
+-      case ELF::EF_AMDGPU_MACH_AMDGCN_GFX941:  MI.Name = "gfx941";  MI.XnackSupported = true;  MI.SrameccSupported = true;  break;
+       case ELF::EF_AMDGPU_MACH_AMDGCN_GFX942:  MI.Name = "gfx942";  MI.XnackSupported = true;  MI.SrameccSupported = true;  break;
+       case ELF::EF_AMDGPU_MACH_AMDGCN_GFX950:  MI.Name = "gfx950";  MI.XnackSupported = true;  MI.SrameccSupported = true;  break;
+       case ELF::EF_AMDGPU_MACH_AMDGCN_GFX1010: MI.Name = "gfx1010"; MI.XnackSupported = true;  MI.SrameccSupported = false; break;
+--- a/runtime/hsa-runtime/loader/executable.cpp
++++ b/runtime/hsa-runtime/loader/executable.cpp
+@@ -74,10 +74,10 @@
+ // 5: New trap handler ABI. Save the PC in ttmp11[22:7] ttmp6[31:0], and park the wave if stopped
+ // 6: New trap handler ABI. ttmp6[25:0] contains dispatch index modulo queue size
+ // 7: New trap handler ABI. Send interrupts as a bitmask, coalescing concurrent exceptions.
+-// 8: New trap handler ABI. for gfx940: Initialize ttmp[4:5] if ttmp11[31] == 0.
++// 8: New trap handler ABI. for gfx942: Initialize ttmp[4:5] if ttmp11[31] == 0.
+ // 9: New trap handler ABI. For gfx11: Save PC in ttmp11[22:7] ttmp6[31:0], and park the wave if stopped.
+ // 10: New trap handler ABI. Set status.skip_export when halting the wave.
+-//                           For gfx940, set ttmp6[31] = 0 if ttmp11[31] == 0.
++//                           For gfx942, set ttmp6[31] = 0 if ttmp11[31] == 0.
+ 
+ HSA_API r_debug _amdgpu_r_debug;
+ static __forceinline link_map*& r_debug_tail() {

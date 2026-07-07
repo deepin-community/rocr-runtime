@@ -1,0 +1,13 @@
+0001-link-to-drm_amdgpu.patch
+0002-remove-libhsa-amd-aqlprofile64.so-loading.patch
+0003-expand-endian-detection.patch
+0004-extend-isa-compatibility-check.patch
+0006-initialize-chip-revision.patch
+On-non-x86-use-alternative-to-x86-intrinsic-__mm_pause.patch
+0007-shared-libhsakmt.patch
+0008-fix-pkgconfig-path.patch
+0009-fix-missing-symbols.patch
+0010-fix-missing-stdint.h.patch
+0011-remove-gfx940-and-gfx941-support.patch
+0012-strip-x86-intrinsics-from-xdna-support.patch
+0013-add-arm-and-ppc-memory-barriers.patch

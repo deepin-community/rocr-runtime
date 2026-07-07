@@ -1,0 +1,49 @@
+From: Cordell Bloor <cgmb@debian.org>
+Date: Sat, 25 Oct 2025 01:33:08 -0600
+Subject: strip x86 intrinsics from xdna support
+
+Forwarded: not-needed
+---
+ runtime/hsa-runtime/core/driver/xdna/amd_xdna_driver.cpp | 5 +++++
+ runtime/hsa-runtime/core/util/utils.h                    | 2 ++
+ 2 files changed, 7 insertions(+)
+
+diff --git a/runtime/hsa-runtime/core/driver/xdna/amd_xdna_driver.cpp b/runtime/hsa-runtime/core/driver/xdna/amd_xdna_driver.cpp
+index 60325b7..c34a39d 100644
+--- a/runtime/hsa-runtime/core/driver/xdna/amd_xdna_driver.cpp
++++ b/runtime/hsa-runtime/core/driver/xdna/amd_xdna_driver.cpp
+@@ -452,9 +452,14 @@ hsa_status_t XdnaDriver::SyncBos(const std::vector<uint64_t>& bo_addrs,
+                                  const std::vector<uint32_t>& bo_sizes) {
+   if (bo_addrs.size() != bo_sizes.size()) return HSA_STATUS_ERROR;
+ 
++/* The XDNA driver is not going to work on non-x86 platforms anyway,
++ * so just disable the parts that use intrinsics for now, until we
++ * can entirely disable it. */
++#if defined(__i386__) || defined(__x86_64__)
+   for (int i = 0; i < bo_addrs.size(); i++) {
+     FlushCpuCache(reinterpret_cast<void*>(bo_addrs[i]), 0, bo_sizes[i]);
+   }
++#endif
+ 
+   return HSA_STATUS_SUCCESS;
+ }
+diff --git a/runtime/hsa-runtime/core/util/utils.h b/runtime/hsa-runtime/core/util/utils.h
+index 66c2028..97e187c 100644
+--- a/runtime/hsa-runtime/core/util/utils.h
++++ b/runtime/hsa-runtime/core/util/utils.h
+@@ -348,6 +348,7 @@ static __forceinline std::string& rtrim(std::string& s) {
+ 
+ static __forceinline std::string& trim(std::string& s) { return ltrim(rtrim(s)); }
+ 
++#if defined(__i386__) || defined(__x86_64__)
+ /// @brief: Flush the cachelines associated with the
+ /// provided address, offset, and length
+ /// @param: base(Input), base address to flush
+@@ -370,6 +371,7 @@ inline void FlushCpuCache(const void* base, size_t offset, size_t len) {
+     cur += cacheline_size;
+   } while (cur <= (const char*)lastline);
+ }
++#endif
+ 
+ }  // namespace rocr
+ 

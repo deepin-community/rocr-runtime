@@ -1,0 +1,4 @@
+usr/include/hsakmt
+usr/lib/${DEB_HOST_MULTIARCH}/pkgconfig/*.pc
+usr/lib/*/cmake/hsakmt
+usr/lib/*/libhsakmt.so

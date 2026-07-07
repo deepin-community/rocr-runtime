@@ -1,0 +1,8 @@
+Version: 5
+
+Source: https://api.github.com/repos/ROCm/ROCR-Runtime/tags?per_page=100
+Matching-Pattern: https://api.github.com/repos/ROCm/ROCR-Runtime/tarball/refs/tags/rocm-@ANY_VERSION@
+Dversionmangle: auto
+Filenamemangle: s%.*/rocm-@ANY_VERSION@%@PACKAGE@-$1.tar.gz%
+Repacksuffix: +dfsg
+Searchmode: plain

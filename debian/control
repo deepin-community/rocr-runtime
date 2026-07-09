@@ -29,7 +29,7 @@ Homepage: https://github.com/ROCm/ROCR-Runtime/
 Rules-Requires-Root: no
 
 Package: libhsa-runtime64-1
-Architecture: amd64 arm64 ppc64el riscv64
+Architecture: amd64 arm64 ppc64el riscv64 loong64
 Multi-Arch: same
 Section: libs
 Depends: ${misc:Depends},
@@ -40,7 +40,7 @@ Description: HSA Runtime API and runtime for ROCm
  to launch compute kernels to available HSA ROCm kernel agents.
 
 Package: libhsa-runtime-dev
-Architecture: amd64 arm64 ppc64el riscv64
+Architecture: amd64 arm64 ppc64el riscv64 loong64
 Multi-Arch: same
 Section: libdevel
 Depends: libhsa-runtime64-1 (= ${binary:Version}),
@@ -54,7 +54,7 @@ Description: HSA Runtime API and runtime for ROCm - development files
 
 Package: libhsakmt1
 Section: libs
-Architecture: amd64 arm64 ppc64el riscv64
+Architecture: amd64 arm64 ppc64el riscv64 loong64
 Depends: ${misc:Depends}, ${shlibs:Depends}
 Multi-Arch: same
 Description: Thunk library for AMD KFD (shlib)
@@ -65,7 +65,7 @@ Description: Thunk library for AMD KFD (shlib)
 
 Package: libhsakmt-dev
 Section: libdevel
-Architecture: amd64 arm64 ppc64el riscv64
+Architecture: amd64 arm64 ppc64el riscv64 loong64
 Depends: libhsakmt1 (= ${binary:Version}), ${misc:Depends},
 Multi-Arch: same
 Description: Thunk library for AMD KFD (dev)

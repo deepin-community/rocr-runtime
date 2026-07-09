@@ -20,7 +20,6 @@ Build-Depends: architecture-is-64-bit,
                lld-21,
                llvm-21-dev,
                pkgconf,
-               rocm-device-libs-21,
                xxd,
 Standards-Version: 4.7.2
 Vcs-Browser: https://salsa.debian.org/rocm-team/rocr-runtime
